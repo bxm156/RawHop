@@ -9,7 +9,7 @@ def build_ip_header(s,num,ttl,host):
     source_ip, port = s.getsockname()
 
     ip_version = 4
-    ip_internet_header_length = 0
+    ip_internet_header_length = 5
     ip_tos = 0
     ip_total_length = 0
     ip_identification = num
@@ -45,9 +45,9 @@ def build_icmp(number):
     icmp_id = number
     icmp_seq = 1
     icmp_data = 192*'Q'
-    icmp_header = struct.pack('bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
-    icmp_checksum = socket.htons(calc_icmp_checksum(icmp_header + icmp_data))
-    icmp_header = struct.pack('bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
+    icmp_header = struct.pack('!bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
+    icmp_checksum = calc_icmp_checksum(icmp_header + icmp_data)
+    icmp_header = struct.pack('!bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
     return icmp_header + icmp_data
 
 def receive_ping(my_socket, packet_id, time_sent, timeout):
@@ -63,7 +63,7 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
             rec_packet, addr = my_socket.recvfrom(1024)
             icmp_header = rec_packet[20:28]
             type, code, checksum, p_id, sequence = struct.unpack(
-                'bbHHh', icmp_header)
+                '!bbHHh', icmp_header)
             if p_id == packet_id:
                 return time_received - time_sent
             time_left -= time_received - time_sent
@@ -73,10 +73,13 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
 def run(host):
     HOST = socket.gethostbyname(socket.gethostname())
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, ICMP_PROTO)
+   # s = socket.socket(socket.AF_INET,socket.SOCK_RAW, socket.IPPROTO_RAW)
 
     #Since we are using socket.IPPROTO_RAW, we do not need the following line.
     #s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 0)
+    #packet = build_ip_header(s,150,250,host) + build_icmp(1989)
     packet = build_icmp(1989)
+
     s.sendto(packet,(host,1))
     
     delay = receive_ping(s, 1989, time.time(), 3)
