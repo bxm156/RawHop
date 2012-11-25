@@ -12,13 +12,13 @@ def build_ip_header(s,num,ttl,host):
     ip_internet_header_length = 5
     ip_tos = 0
     ip_total_length = 0
-    ip_identification = num
+    ip_identification = 1
     ip_fragment_offset = 0 
-    ip_ttl = ttl
+    ip_ttl = 255
     ip_protocol = 1 # 1 = ICMP
     ip_checksum = 0
     ip_source = socket.inet_aton(source_ip)
-    ip_destination = host
+    ip_destination = socket.inet_aton(host)
 
 
     ip_ver_ihl = ( ip_version << 4) + ip_internet_header_length
@@ -73,14 +73,15 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
 def run(host):
     HOST = socket.gethostbyname(socket.gethostname())
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, ICMP_PROTO)
-   # s = socket.socket(socket.AF_INET,socket.SOCK_RAW, socket.IPPROTO_RAW)
+    #s = socket.socket(socket.AF_INET,socket.SOCK_RAW, socket.IPPROTO_IP)
 
     #Since we are using socket.IPPROTO_RAW, we do not need the following line.
-    #s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 0)
+    #s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 2)
+    #print s.getsockopt(socket.IPPROTO_IP,socket.IP_HDRINCL)
     #packet = build_ip_header(s,150,250,host) + build_icmp(1989)
     packet = build_icmp(1989)
 
-    s.sendto(packet,(host,1))
+    s.sendto(packet,('8.8.8.8',0))
     
     delay = receive_ping(s, 1989, time.time(), 3)
     print delay
