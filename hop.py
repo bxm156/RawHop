@@ -11,10 +11,10 @@ def build_ip_header(s,num,ttl,host):
     ip_version = 4
     ip_internet_header_length = 5
     ip_tos = 0
-    ip_total_length = 0
-    ip_identification = 1
+    ip_total_length = 220
+    ip_identification = num
     ip_fragment_offset = 0 
-    ip_ttl = 255
+    ip_ttl = ttl
     ip_protocol = 1 # 1 = ICMP
     ip_checksum = 0
     ip_source = socket.inet_aton(source_ip)
@@ -24,9 +24,15 @@ def build_ip_header(s,num,ttl,host):
     ip_ver_ihl = ( ip_version << 4) + ip_internet_header_length
 
     # The ! mark means network order
-    ip_header = struct.pack('!BBHHHBBH4s4s',ip_ver_ihl,ip_tos,ip_total_length,
-        ip_identification, ip_fragment_offset, ip_ttl, ip_protocol,
-        ip_checksum, ip_source, ip_destination)
+    # This code was written for an Intel Mac
+    # Intel Macs are based on the Berkeley-derived kernels, which require a different byte order for
+    # IP Headers.
+
+    # On many Berkeley-derived kernels, all fields are in the 
+    # network byte order except ip_len and ip_off, which are in host byte order
+    
+    ip_header = struct.pack('!BB',ip_ver_ihl,ip_tos) + struct.pack('H',ip_total_length) + struct.pack('!H',ip_identification) + struct.pack('H',ip_fragment_offset) + struct.pack('!BB',ip_ttl,ip_protocol) + struct.pack('!H',ip_checksum) + struct.pack('!4s4s',ip_source,ip_destination)
+
     return ip_header
 
 def calc_icmp_checksum(data):
@@ -73,15 +79,10 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
 def run(host):
     HOST = socket.gethostbyname(socket.gethostname())
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, ICMP_PROTO)
-    #s = socket.socket(socket.AF_INET,socket.SOCK_RAW, socket.IPPROTO_IP)
+    s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+    packet = build_ip_header(s,150,255,host) + build_icmp(1989)
 
-    #Since we are using socket.IPPROTO_RAW, we do not need the following line.
-    #s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 2)
-    #print s.getsockopt(socket.IPPROTO_IP,socket.IP_HDRINCL)
-    #packet = build_ip_header(s,150,250,host) + build_icmp(1989)
-    packet = build_icmp(1989)
-
-    s.sendto(packet,('8.8.8.8',0))
+    s.sendto(packet,("4.4.4.4",0))
     
     delay = receive_ping(s, 1989, time.time(), 3)
     print delay
