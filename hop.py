@@ -2,9 +2,13 @@ import socket
 import struct
 import time
 import select
+import math
+import urllib
+from xml.dom import minidom
 
 ICMP_PROTO = socket.getprotobyname('icmp')
 MAX_TTL = 255
+LOW_TTL = 1 #127.0.0.1 returns 1
 TIMEOUT_PER_PING = 3 #seconds
 
 ########################
@@ -109,6 +113,30 @@ def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
     #Throw away
     return (False, False)
 
+####################################
+### Geographical Destiance - 425 ###
+####################################
+
+def distance(lat1,long1,lat2,long2):
+    """ 
+    Using the Haversine forumula
+    """
+    r = 6378.1 #radius of Earth in km
+    dLat = math.radians(lat2-lat1)
+    dLong = math.radians(long2-long1)
+    a = math.sin(dLat/2) * math.sin(dLat/2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * \
+        math.sin(dLong/2) * math.sin(dLong/2)
+    c = 2 * math.atan2(math.sqrt(a),math.sqrt(1-a))
+    d = r * c
+    return d # distance in km
+
+def get_coordinates(ip):
+    url = "http://freegeoip.net/xml/{}".format(ip)
+    dom = minidom.parse(urllib.urlopen(url))
+    lat = dom.getElementsByTagName('Latitude')[0].childNodes[0].nodeValue
+    long = dom.getElementsByTagName('Longitude')[0].childNodes[0].nodeValue
+    return (float(lat),float(long))
+
 ########################
 ### Program Exection ###
 ########################
@@ -133,19 +161,33 @@ def run_search(s,host):
         print "{} - {} {}".format(ttl,success,rtt)
         if success:
             high = ttl
-            ttl = (high+low)/2
+            new_ttl = max((high+low)/2,LOW_TTL)
+            if ttl == new_ttl:
+                return (False,False)
+            ttl = new_ttl
         else:
             low = ttl
-            ttl = ttl*2
+            new_ttl = min(ttl*2,MAX_TTL)
+            if ttl == new_ttl:
+                return (False, False)
+            ttl = new_ttl
         if high == (low + 1):
             return (high,last_rtt)
 
+##################
+### Main Entry ###
+##################
+
 def run(host):
-    #HOST = socket.gethostbyname(socket.gethostname())
+    local_ip = socket.gethostbyname(socket.gethostname())
     
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, ICMP_PROTO)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
     print run_search(s,host)
+    lat1,long1 = get_coordinates(local_ip)
+    lat2,long2 = get_coordinates(host)
+    print distance(lat1,long1,lat2,long2)
+
     #packet = build_ip_header(s,150,255,host) + build_icmp(1989)
 
     #s.sendto(packet,(host,0)) #host here doesn't matter, since we are making our own ip header
@@ -158,5 +200,5 @@ def run(host):
     s.close()
 
 if __name__ == "__main__":
-    run("8.8.8.8")
+    run("199.255.189.60")
 
