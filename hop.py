@@ -4,6 +4,12 @@ import time
 import select
 
 ICMP_PROTO = socket.getprotobyname('icmp')
+MAX_TTL = 255
+TIMEOUT_PER_PING = 3 #seconds
+
+########################
+### Building Packets ###
+########################
 
 def build_ip_header(s,num,ttl,host):
     source_ip, port = s.getsockname()
@@ -16,7 +22,7 @@ def build_ip_header(s,num,ttl,host):
     ip_fragment_offset = 0 
     ip_ttl = ttl
     ip_protocol = 1 # 1 = ICMP
-    ip_checksum = 0
+    ip_checksum = 0 # Depending on implementation, the kernel or the hardware will calculate this for us :)
     ip_source = socket.inet_aton(source_ip)
     ip_destination = socket.inet_aton(host)
 
@@ -31,18 +37,12 @@ def build_ip_header(s,num,ttl,host):
     # On many Berkeley-derived kernels, all fields are in the 
     # network byte order except ip_len and ip_off, which are in host byte order
     
-    ip_header = struct.pack('!BB',ip_ver_ihl,ip_tos) + struct.pack('H',ip_total_length) + struct.pack('!H',ip_identification) + struct.pack('H',ip_fragment_offset) + struct.pack('!BB',ip_ttl,ip_protocol) + struct.pack('!H',ip_checksum) + struct.pack('!4s4s',ip_source,ip_destination)
+    ip_header = (struct.pack('!BB',ip_ver_ihl,ip_tos) + struct.pack('H',ip_total_length) + 
+    struct.pack('!H',ip_identification) + struct.pack('H',ip_fragment_offset) + 
+    struct.pack('!BB',ip_ttl,ip_protocol) + struct.pack('!H',ip_checksum) + 
+    struct.pack('!4s4s',ip_source,ip_destination))
 
     return ip_header
-
-def calc_icmp_checksum(data):
-    s = 0
-    for i in range(0, len(data), 2):
-        w = (ord(data[i]) << 8) + ord(data[i+1])
-        s = s + w
-    s = (s  & 0xffff) + ( s >> 16)
-    s = s + (s >> 16)
-    return ~s & 0xffff
 
 def build_icmp(number):
     icmp_type = 8
@@ -56,7 +56,20 @@ def build_icmp(number):
     icmp_header = struct.pack('!bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
     return icmp_header + icmp_data
 
-def receive_ping(my_socket, packet_id, time_sent, timeout):
+def calc_icmp_checksum(data):
+    s = 0
+    for i in range(0, len(data), 2):
+        w = (ord(data[i]) << 8) + ord(data[i+1])
+        s = s + w
+    s = (s  & 0xffff) + ( s >> 16)
+    s = s + (s >> 16)
+    return ~s & 0xffff
+
+###########################
+### Response Validation ###
+###########################
+
+def receive_ping(my_socket, packet_id, icmp_id, time_sent, timeout):
         # Receive the ping from the socket.
         time_left = timeout
         while True:
@@ -64,28 +77,82 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
             ready = select.select([my_socket], [], [], time_left)
             how_long_in_select = time.time() - started_select
             if ready[0] == []: # Timeout
-                return
+                return (False, False)
             time_received = time.time()
             rec_packet, addr = my_socket.recvfrom(1024)
-            icmp_header = rec_packet[20:28]
-            type, code, checksum, p_id, sequence = struct.unpack(
-                '!bbHHh', icmp_header)
-            if p_id == packet_id:
-                return time_received - time_sent
+            correct_packet, reply = validate_icmp_response(rec_packet,packet_id,icmp_id)
+            if correct_packet == True:
+                return (reply, time_received - time_sent)
             time_left -= time_received - time_sent
             if time_left <= 0:
-                return
+                return (False, False)
+
+def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
+    icmp_header = response[20:28] #Extract the ICMP Response
+    icmp_type, icmp_code, icmp_checksum, icmp_id, icmp_sequence = struct.unpack('!bbHHh', icmp_header)
+    if icmp_type == 0 and icmp_code == 0 and icmp_id == sent_icmp_id:
+        #We have recieved a valid ICMP response!
+        return (True,True)
+
+    #We may have an expired TTL...
+    original_ip_header =  response[28:48]
+    (ip_ver_hl, ip_tos, ip_len, ip_ident, ip_offset, ip_ttl, ip_proto, ip_checksum, 
+        ip_src, ip_dest) = struct.unpack('!BBHHHBBH4s4s', original_ip_header)
+
+    original_icmp_header = response[48:56]
+    (original_icmp_type, original_icmp_code, original_icmp_checksum, original_icmp_id,
+        original_icmp_seq) = struct.unpack('!bbHHh',original_icmp_header)
+    if icmp_type == 11 and icmp_code == 0 and original_icmp_id == sent_icmp_id and ip_ident == sent_ip_id:
+        #The TTL Expired!
+        return (True,False)
+
+    #Throw away
+    return (False, False)
+
+########################
+### Program Exection ###
+########################
+
+def run_search(s,host):
+    starting_ttl = 16 #defined in homework assignment
+    starting_packet_id = 500
+    starting_icmp_id = 100
+
+    low = 0
+    high = MAX_TTL
+    ttl = starting_ttl
+    last_rtt = None
+
+    while True:
+        # Build Packet
+        packet = build_ip_header(s,starting_packet_id,ttl,host) + build_icmp(starting_icmp_id)
+        s.sendto(packet,("1.3.3.7",0)) #destination host doesn't matter, we make our own ip header
+        (success,rtt) = receive_ping(s,starting_packet_id,starting_icmp_id, time.time(), TIMEOUT_PER_PING)
+        if rtt is not False:
+            last_rtt = rtt
+        print "{} - {} {}".format(ttl,success,rtt)
+        if success:
+            high = ttl
+            ttl = (high+low)/2
+        else:
+            low = ttl
+            ttl = ttl*2
+        if high == (low + 1):
+            return (high,last_rtt)
 
 def run(host):
-    HOST = socket.gethostbyname(socket.gethostname())
+    #HOST = socket.gethostbyname(socket.gethostname())
+    
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, ICMP_PROTO)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-    packet = build_ip_header(s,150,255,host) + build_icmp(1989)
+    print run_search(s,host)
+    #packet = build_ip_header(s,150,255,host) + build_icmp(1989)
 
-    s.sendto(packet,("4.4.4.4",0))
+    #s.sendto(packet,(host,0)) #host here doesn't matter, since we are making our own ip header
     
-    delay = receive_ping(s, 1989, time.time(), 3)
-    print delay
+    #delay = receive_ping(s, 150, 1989, time.time(), TIMEOUT_PER_PING)
+   # print delay
+
     #s.bind((HOST,0))
     #build_ip_header(s,1,16,host)
     s.close()
