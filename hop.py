@@ -113,9 +113,9 @@ def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
     #Throw away
     return (False, False)
 
-####################################
-### Geographical Destiance - 425 ###
-####################################
+###################################
+### Geographical Distance - 425 ###
+###################################
 
 def distance(lat1,long1,lat2,long2):
     """ 
