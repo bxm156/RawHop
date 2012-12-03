@@ -10,6 +10,7 @@ MAX_TTL = 255
 LOW_TTL = 1 #127.0.0.1 returns 1
 TIMEOUT = 3 #seconds
 TARGET_PORT = 33534 #The target port at our destination
+SOURCE_PORT = 5337
 
 ########################
 ### Building Packets ###
@@ -73,7 +74,7 @@ def calc_udp_checksum(data):
 ### Response Validation ###
 ###########################
 
-def receive_ping(my_socket, packet_id, icmp_id, time_sent, timeout):
+def receive_ping(my_socket, packet_id, time_sent, timeout):
     """
     Listens on my_socket for a packet_id and icmp_id. It uses the time_sent to 
     determine the RTT. We wait no longer than timeout.
@@ -93,14 +94,14 @@ def receive_ping(my_socket, packet_id, icmp_id, time_sent, timeout):
             return (False, False)
         time_received = time.time()
         rec_packet, addr = my_socket.recvfrom(1024)
-        correct_packet, reply = validate_icmp_response(rec_packet,packet_id,icmp_id)
+        correct_packet, reply = validate_icmp_response(rec_packet,packet_id)
         if correct_packet == True:
             return (reply, time_received - time_sent)
         time_left -= time_received - time_sent
         if time_left <= 0:
             return (False, False)
 
-def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
+def validate_icmp_response(response,sent_ip_id):
     """
     Validates a possible reply to our ping request
 
@@ -111,22 +112,25 @@ def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
     """
     icmp_header = response[20:28] #Extract the ICMP Response
     icmp_type, icmp_code, icmp_checksum, icmp_id, icmp_sequence = struct.unpack('!bbHHh', icmp_header)
-    if icmp_type == 3 and icmp_code == 3:
-        #We have recieved a valid ICMP response!
-        return (True,True)
 
     #We may have an expired TTL...
     original_ip_header =  response[28:48]
     (ip_ver_hl, ip_tos, ip_len, ip_ident, ip_offset, ip_ttl, ip_proto, ip_checksum, 
         ip_src, ip_dest) = struct.unpack('!BBHHHBBH4s4s', original_ip_header)
 
-    original_icmp_header = response[48:56]
-    (original_icmp_type, original_icmp_code, original_icmp_checksum, original_icmp_id,
-        original_icmp_seq) = struct.unpack('!bbHHh',original_icmp_header)
-    if icmp_type == 11 and icmp_code == 0 and ip_ident == sent_ip_id:
+    original_udp_header = response[48:56]
+
+    (original_udp_src_port, original_udp_dest_port, original_udp_length, original_udp_checksum
+    ) = struct.unpack('!HHHH',original_udp_header)
+
+    if icmp_type == 3 and icmp_code == 3 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT:
+        #We have recieved a valid ICMP response!
+        return (True,True)
+
+    if icmp_type == 11 and icmp_code == 0 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT:
         #The TTL Expired!
         return (True,False)
-    print icmp_type, icmp_code
+
     #Throw away
     return (False, False)
 
@@ -167,7 +171,6 @@ def run_search(s,host):
     """
     starting_ttl = 16 #defined in homework assignment
     starting_packet_id = 500
-    starting_icmp_id = 100
 
     low = 0
     high = MAX_TTL
@@ -176,9 +179,9 @@ def run_search(s,host):
 
     while True:
         # Build Packet
-        packet = build_ip_header(s,starting_packet_id,ttl,host) + build_udp(5337,TARGET_PORT,192*"Q")
+        packet = build_ip_header(s,starting_packet_id,ttl,host) + build_udp(SOURCE_PORT,TARGET_PORT,192*"Q")
         s.sendto(packet,("1.3.3.7",0)) #destination host doesn't matter, we make our own ip header
-        (success,rtt) = receive_ping(s,starting_packet_id,starting_icmp_id, time.time(), TIMEOUT)
+        (success,rtt) = receive_ping(s,starting_packet_id, time.time(), TIMEOUT)
         if rtt is not False:
             last_rtt = rtt
         print "{} - {} {}".format(ttl,success,rtt)
@@ -196,6 +199,8 @@ def run_search(s,host):
             ttl = new_ttl
         if high == (low + 1):
             return (high,last_rtt)
+
+        starting_packet_id += 1
 
 ##################
 ### Main Entry ###
