@@ -16,6 +16,9 @@ TIMEOUT_PER_PING = 3 #seconds
 ########################
 
 def build_ip_header(s,num,ttl,host):
+    """
+    Builds the IP Header for a given socket, ip number, ttl, and target host
+    """
     source_ip, port = s.getsockname()
 
     ip_version = 4
@@ -49,6 +52,9 @@ def build_ip_header(s,num,ttl,host):
     return ip_header
 
 def build_icmp(number):
+    """
+    Builds an ICMP Ping Request with a given id number
+    """
     icmp_type = 8
     icmp_code = 0
     icmp_checksum = 0
@@ -61,6 +67,9 @@ def build_icmp(number):
     return icmp_header + icmp_data
 
 def calc_icmp_checksum(data):
+    """
+    Calculates the ICMP checksum
+    """
     s = 0
     for i in range(0, len(data), 2):
         w = (ord(data[i]) << 8) + ord(data[i+1])
@@ -74,24 +83,41 @@ def calc_icmp_checksum(data):
 ###########################
 
 def receive_ping(my_socket, packet_id, icmp_id, time_sent, timeout):
-        # Receive the ping from the socket.
-        time_left = timeout
-        while True:
-            started_select = time.time()
-            ready = select.select([my_socket], [], [], time_left)
-            how_long_in_select = time.time() - started_select
-            if ready[0] == []: # Timeout
-                return (False, False)
-            time_received = time.time()
-            rec_packet, addr = my_socket.recvfrom(1024)
-            correct_packet, reply = validate_icmp_response(rec_packet,packet_id,icmp_id)
-            if correct_packet == True:
-                return (reply, time_received - time_sent)
-            time_left -= time_received - time_sent
-            if time_left <= 0:
-                return (False, False)
+    """
+    Listens on my_socket for a packet_id and icmp_id. It uses the time_sent to 
+    determine the RTT. We wait no longer than timeout.
+
+    Returns a tuple (Bool,Bool or RTT).
+        The first boolean is if we recieved a reply.
+        If we did recieve a reply, the second value is the RTT otherwise False
+        
+    """
+    # Receive the ping from the socket.
+    time_left = timeout
+    while True:
+        started_select = time.time()
+        ready = select.select([my_socket], [], [], time_left)
+        how_long_in_select = time.time() - started_select
+        if ready[0] == []: # Timeout
+            return (False, False)
+        time_received = time.time()
+        rec_packet, addr = my_socket.recvfrom(1024)
+        correct_packet, reply = validate_icmp_response(rec_packet,packet_id,icmp_id)
+        if correct_packet == True:
+            return (reply, time_received - time_sent)
+        time_left -= time_received - time_sent
+        if time_left <= 0:
+            return (False, False)
 
 def validate_icmp_response(response,sent_ip_id,sent_icmp_id):
+    """
+    Validates a possible reply to our ping request
+
+    Returns a tuple (Bool,Bool).
+        The first boolean is if recieved a response for our pocket (False if packet is not related). 
+        If we did recieve a response to our ping, return True if it was successfull,
+            False if the TTL expired during transit.
+    """
     icmp_header = response[20:28] #Extract the ICMP Response
     icmp_type, icmp_code, icmp_checksum, icmp_id, icmp_sequence = struct.unpack('!bbHHh', icmp_header)
     if icmp_type == 0 and icmp_code == 0 and icmp_id == sent_icmp_id:
@@ -131,6 +157,9 @@ def distance(lat1,long1,lat2,long2):
     return d # distance in km
 
 def get_coordinates(ip):
+    """
+    Returns the latitude and longitude for a IP address
+    """
     url = "http://freegeoip.net/xml/{}".format(ip)
     dom = minidom.parse(urllib.urlopen(url))
     lat = dom.getElementsByTagName('Latitude')[0].childNodes[0].nodeValue
@@ -142,6 +171,9 @@ def get_coordinates(ip):
 ########################
 
 def run_search(s,host):
+    """
+    Runs a 'binary' search to find the minimum TTL value, and its RTT
+    """
     starting_ttl = 16 #defined in homework assignment
     starting_packet_id = 500
     starting_icmp_id = 100
@@ -187,16 +219,6 @@ def run(host):
     lat1,long1 = get_coordinates(local_ip)
     lat2,long2 = get_coordinates(host)
     print distance(lat1,long1,lat2,long2)
-
-    #packet = build_ip_header(s,150,255,host) + build_icmp(1989)
-
-    #s.sendto(packet,(host,0)) #host here doesn't matter, since we are making our own ip header
-    
-    #delay = receive_ping(s, 150, 1989, time.time(), TIMEOUT_PER_PING)
-   # print delay
-
-    #s.bind((HOST,0))
-    #build_ip_header(s,1,16,host)
     s.close()
 
 if __name__ == "__main__":
