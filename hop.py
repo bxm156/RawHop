@@ -8,7 +8,7 @@ from xml.dom import minidom
 
 MAX_TTL = 255
 LOW_TTL = 1 #127.0.0.1 returns 1
-TIMEOUT_PER_PING = 3 #seconds
+TIMEOUT = 3 #seconds
 TARGET_PORT = 33534 #The target port at our destination
 
 ########################
@@ -178,7 +178,7 @@ def run_search(s,host):
         # Build Packet
         packet = build_ip_header(s,starting_packet_id,ttl,host) + build_udp(5337,TARGET_PORT,192*"Q")
         s.sendto(packet,("1.3.3.7",0)) #destination host doesn't matter, we make our own ip header
-        (success,rtt) = receive_ping(s,starting_packet_id,starting_icmp_id, time.time(), TIMEOUT_PER_PING)
+        (success,rtt) = receive_ping(s,starting_packet_id,starting_icmp_id, time.time(), TIMEOUT)
         if rtt is not False:
             last_rtt = rtt
         print "{} - {} {}".format(ttl,success,rtt)
