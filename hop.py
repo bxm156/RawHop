@@ -6,11 +6,10 @@ import math
 import urllib
 from xml.dom import minidom
 
-ICMP_PROTO = socket.getprotobyname('icmp')
 MAX_TTL = 255
 LOW_TTL = 1 #127.0.0.1 returns 1
 TIMEOUT_PER_PING = 3 #seconds
-TARGET_PORT = 33534
+TARGET_PORT = 33534 #The target port at our destination
 
 ########################
 ### Building Packets ###
@@ -52,40 +51,13 @@ def build_ip_header(s,num,ttl,host):
 
     return ip_header
 
-def build_icmp(number):
-    """
-    Builds an ICMP Ping Request with a given id number
-    """
-    icmp_type = 8
-    icmp_code = 0
-    icmp_checksum = 0
-    icmp_id = number
-    icmp_seq = 1
-    icmp_data = 192*'Q'
-    icmp_header = struct.pack('!bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
-    icmp_checksum = calc_icmp_checksum(icmp_header + icmp_data)
-    icmp_header = struct.pack('!bbHHh',icmp_type,icmp_code,icmp_checksum,icmp_id,icmp_seq)
-    return icmp_header + icmp_data
-
-def calc_icmp_checksum(data):
-    """
-    Calculates the ICMP checksum
-    """
-    s = 0
-    for i in range(0, len(data), 2):
-        w = (ord(data[i]) << 8) + ord(data[i+1])
-        s = s + w
-    s = (s  & 0xffff) + ( s >> 16)
-    s = s + (s >> 16)
-    return ~s & 0xffff
-
 def build_udp(sport,dport,data):
     checksum = 0
     length = 8 + len(data)
     udp_header = struct.pack("!HHHH",sport,dport,length,checksum)
     udp_packet = udp_header + data
-    #checksum = calc_udp_checksum(udp_packet)
-    #udp_header = struct.pack("!HHHH",sport,dport,length,checksum)
+    checksum = calc_udp_checksum(udp_packet)
+    udp_header = struct.pack("!HHHH",sport,dport,length,checksum)
     return udp_header + data
 
 def calc_udp_checksum(data):
@@ -96,6 +68,7 @@ def calc_udp_checksum(data):
     s = (s  & 0xffff) + ( s >> 16)
     s = s + (s >> 16)
     return ~s & 0xffff
+
 ###########################
 ### Response Validation ###
 ###########################
@@ -213,7 +186,7 @@ def run_search(s,host):
             high = ttl
             new_ttl = max((high+low)/2,LOW_TTL)
             if ttl == new_ttl:
-                return (False,False)
+                return (ttl,last_rtt)
             ttl = new_ttl
         else:
             low = ttl
@@ -233,12 +206,14 @@ def run(host):
     
     s = socket.socket(socket.AF_INET,socket.SOCK_RAW, socket.IPPROTO_ICMP)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-    print run_search(s,host)
+    min_ttl,rtt = run_search(s,host)
+    print "Minimum TTL Required: {}".format(min_ttl)
+    print "RTT: {} seconds".format(rtt)
     lat1,long1 = get_coordinates(local_ip)
     lat2,long2 = get_coordinates(host)
-    print distance(lat1,long1,lat2,long2)
+    print "Distance: {} km".format(distance(lat1,long1,lat2,long2))
     s.close()
 
 if __name__ == "__main__":
-    run("74.125.134.101")
+    run("74.125.130.99")
 
