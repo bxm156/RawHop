@@ -123,11 +123,13 @@ def validate_icmp_response(response,sent_ip_id):
     (original_udp_src_port, original_udp_dest_port, original_udp_length, original_udp_checksum
     ) = struct.unpack('!HHHH',original_udp_header)
 
-    if icmp_type == 3 and icmp_code == 3 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT:
+    if icmp_type == 3 and icmp_code == 3 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT and \
+        original_udp_dest_port == TARGET_PORT:
         #We have recieved a valid ICMP response!
         return (True,True)
 
-    if icmp_type == 11 and icmp_code == 0 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT:
+    if icmp_type == 11 and icmp_code == 0 and ip_ident == sent_ip_id and original_udp_src_port == SOURCE_PORT and \
+        original_udp_dest_port == TARGET_PORT:
         #The TTL Expired!
         return (True,False)
 
