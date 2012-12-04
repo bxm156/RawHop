@@ -4,12 +4,13 @@ import time
 import select
 import math
 import urllib
+import sys
 from xml.dom import minidom
 
 MAX_TTL = 255
 LOW_TTL = 1 #127.0.0.1 returns 1
 TIMEOUT = 3 #seconds
-TARGET_PORT = 33534 #The target port at our destination
+TARGET_PORT = 33434 #The target port at our destination
 SOURCE_PORT = 5337
 
 ########################
@@ -25,7 +26,7 @@ def build_ip_header(s,num,ttl,host):
     ip_version = 4
     ip_internet_header_length = 5
     ip_tos = 0
-    ip_total_length = 220
+    ip_total_length = 52
     ip_identification = num
     ip_fragment_offset = 0 
     ip_ttl = ttl
@@ -55,9 +56,6 @@ def build_ip_header(s,num,ttl,host):
 def build_udp(sport,dport,data):
     checksum = 0
     length = 8 + len(data)
-    udp_header = struct.pack("!HHHH",sport,dport,length,checksum)
-    udp_packet = udp_header + data
-    checksum = calc_udp_checksum(udp_packet)
     udp_header = struct.pack("!HHHH",sport,dport,length,checksum)
     return udp_header + data
 
@@ -91,6 +89,7 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
         ready = select.select([my_socket], [], [], time_left)
         how_long_in_select = time.time() - started_select
         if ready[0] == []: # Timeout
+            print "Timeout"
             return (False, False)
         time_received = time.time()
         rec_packet, addr = my_socket.recvfrom(1024)
@@ -99,6 +98,7 @@ def receive_ping(my_socket, packet_id, time_sent, timeout):
             return (reply, time_received - time_sent)
         time_left -= time_received - time_sent
         if time_left <= 0:
+            print "Timeout"
             return (False, False)
 
 def validate_icmp_response(response,sent_ip_id):
@@ -179,7 +179,7 @@ def run_search(s,host):
 
     while True:
         # Build Packet
-        packet = build_ip_header(s,starting_packet_id,ttl,host) + build_udp(SOURCE_PORT,TARGET_PORT,192*"Q")
+        packet = build_ip_header(s,starting_packet_id,ttl,host) + build_udp(SOURCE_PORT,TARGET_PORT,24*"0")
         s.sendto(packet,("1.3.3.7",0)) #destination host doesn't matter, we make our own ip header
         (success,rtt) = receive_ping(s,starting_packet_id, time.time(), TIMEOUT)
         if rtt is not False:
@@ -220,5 +220,8 @@ def run(host):
     s.close()
 
 if __name__ == "__main__":
-    run("74.125.130.99")
-
+    if len(sys.argv) >= 2:
+        target = sys.argv[1]
+        addr = socket.gethostbyname(target)
+        print "Running for {} ({})...".format(target,addr)
+        run(addr)
