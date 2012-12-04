@@ -21,7 +21,7 @@ def build_ip_header(s,num,ttl,host):
     """
     Builds the IP Header for a given socket, ip number, ttl, and target host
     """
-    source_ip, port = s.getsockname()
+    source_ip = socket.gethostbyname(socket.gethostname())
 
     ip_version = 4
     ip_internet_header_length = 5
